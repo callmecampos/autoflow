@@ -1,0 +1,10 @@
+syntax = "proto3"
+
+package syllable
+
+message Bars {
+    repeated Syllable syllables;
+    repeated string verses;
+    optional string lyrics;
+    optional bytes audio;
+}

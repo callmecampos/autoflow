@@ -35,23 +35,16 @@ TODO:
 """
 
 def _get_artists():
-    return {artist : open(os.path.join(BASE_DIR, artist, "name.txt")).readline().strip() for artist in os.listdir(BASE_DIR)}
+    return {artist : open(os.path.join(BASE_DIR, artist, "name.txt")).readline().strip() for artist in os.listdir(BASE_DIR) if artist[0] != "_"}
 
 def _get_songs(artist):
     artist_base = os.path.join(BASE_DIR, artist)
-    return {song : open(os.path.join(artist_base, song, "song.txt")).readline().strip() for song in os.listdir(artist_base) if os.path.isdir(os.path.join(artist_base, song))}
+    return {song : open(os.path.join(artist_base, song, "song.txt")).readline().strip() for song in os.listdir(artist_base) if os.path.isdir(os.path.join(artist_base, song)) and song[0] != "_"}
     
-def _get_song(artist, song):
-    song_path = os.path.join(BASE_DIR, artist, song, "song.bars")
-    # TODO: have this be an attribute of the bars object
-    contents = ""
-    with open(song_path, "r") as f:
-        contents = f.read()
-    return contents
 # TODO: autoflow specific dependencies
 
 def _load_bars(artist, song):
-    song_path = os.path.join(BASE_DIR, artist, song, "song.bars")
+    song_path = os.path.join(BASE_DIR, artist, song)
     bars = Bars.load(song_path)
     return bars
 
@@ -100,7 +93,9 @@ def get_song():
     if song_req not in song_names.keys():
         return "Song does not exist", 500
 
-    response = {"artist": artist_names[artist_req], "song": song_names[song_req], "contents": _get_song(artist_req, song_req)}
+    bars = _load_bars(artist_req, song_req)
+
+    response = {"artist": artist_names[artist_req], "song": song_names[song_req], "contents": bars.verses(), "syllables": bars.syllable_text()}
 
     return jsonify(response), 200
 

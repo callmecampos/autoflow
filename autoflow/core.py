@@ -1,3 +1,4 @@
+import os
 from typing import List 
 
 import autoflow.parsing.syllabic as syllabic
@@ -6,24 +7,31 @@ import autoflow.parsing.syllabic as syllabic
 
 class Bars:
     def __init__(self, verses, options={syllabic.BASE_CLASS : "NLTK"}):
-        self.verses = verses
-        self.options = options # TODO: quick way to validate this (check keys at base -- and validity of it otherwise -- parse could just fail if invalid type deal)
+        self._verses = verses
+        self._options = options # TODO: quick way to validate this (check keys at base -- and validity of it otherwise -- parse could just fail if invalid type deal)
         self.parse(init=True)
 
     @classmethod
-    def load(cls, filepath):
-        with open(filepath, "r") as f:
+    def load(cls, bars_path):
+        """
+        Bars path: Path to song directory (e.g. "./macmiller/diablo")
+        Song path: Bars path + "song.bars"
+        """
+        with open(os.path.join(bars_path, "song.bars"), "r") as f:
             return cls(f.readlines())
 
     def parse(self, init=False):
         if init:
-            self.syllabic_parser = getattr(syllabic, syllabic.BASE_CLASS + self.options[syllabic.BASE_CLASS])()
-        self.parsed_verses = [self.syllabic_parser.syllabify(line) for line in self.verses]
+            self.syllabic_parser = getattr(syllabic, syllabic.BASE_CLASS + self._options[syllabic.BASE_CLASS])()
+        self._parsed_verses = [self.syllabic_parser.syllabify(line) for line in self._verses]
         # TODO: implement - loop through verses and build parsed_verses instance variable... what is a good representation for this?
+
+    def verses(self, raw=True):
+        return ''.join(self._verses) if raw else self._verses
 
     def syllable_text(self):
         text_block = ""
-        for line in self.parsed_verses:
+        for line in self._parsed_verses:
             for syllable in line:
                 text_block += syllable.syllable + " "
             text_block = text_block[:-1] # remove space
