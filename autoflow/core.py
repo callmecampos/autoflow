@@ -1,38 +1,50 @@
 import os
-from typing import List 
+from typing import List
 
 import autoflow.parsing.syllabic as syllabic
+from autoflow.protos.python.bars_pb2 import SongProto
 
 # TODO: spec out and type all of these
 
 class Bars:
     def __init__(self, verses, options={syllabic.BASE_CLASS : "NLTK"}):
-        self._verses = verses
+        self._proto = SongProto()
         self._options = options # TODO: quick way to validate this (check keys at base -- and validity of it otherwise -- parse could just fail if invalid type deal)
-        self.parse(init=True)
+        self.parse(verses, init=True)
 
     @classmethod
     def load(cls, bars_path):
         """
         Bars path: Path to song directory (e.g. "./macmiller/diablo")
         Song path: Bars path + "song.bars"
+
+        TODO: we should have some nice path management at some point so that we don't have to run the script from a specific spot always!!!
         """
         with open(os.path.join(bars_path, "song.bars"), "r") as f:
             return cls(f.readlines())
 
-    def parse(self, init=False):
+    def to_proto(self) -> SongProto:
+        return self._proto
+
+    def parse(self, verses: str, init=False):
         if init:
             self.syllabic_parser = getattr(syllabic, syllabic.BASE_CLASS + self._options[syllabic.BASE_CLASS])()
-        self._parsed_verses = [self.syllabic_parser.syllabify(line) for line in self._verses]
+        self._proto.bars.extend([self.syllabic_parser.syllabify(line) for line in verses])
         # TODO: implement - loop through verses and build parsed_verses instance variable... what is a good representation for this?
 
-    def verses(self, raw=True):
-        return ''.join(self._verses) if raw else self._verses
+    def get_verses(self):
+        verses = ""
+        for bar in self._proto.bars:
+            for word in bar.words:
+                verses += word.word + " "
+            verses = verses[:-1] # remove space
+            verses += "\n"
+        return verses
 
-    def syllable_text(self):
+    def get_syllable_text(self): # TODO: this should now be deprecated - but test like this for now to make sure functionality is the same and then refactor on swift side
         text_block = ""
-        for line in self._parsed_verses:
-            for syllable in line:
+        for bar in self._proto.bars:
+            for syllable in bar.syllables:
                 text_block += syllable.syllable + " "
             text_block = text_block[:-1] # remove space
             text_block += "\n"
@@ -56,7 +68,7 @@ class Bar:
 
     def set_syllable(self, index, offset, duration=1/4, pitch=0):
         syll = self.syllabic_line[index]
-        syll.set_bar_offset(offset)
+        syll.set_offset(offset)
         syll.set_duration(duration)
         syll.set_pitch(pitch)
 

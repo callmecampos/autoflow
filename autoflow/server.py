@@ -95,7 +95,7 @@ def get_song():
 
     bars = _load_bars(artist_req, song_req)
 
-    response = {"artist": artist_names[artist_req], "song": song_names[song_req], "contents": bars.verses(), "syllables": bars.syllable_text()}
+    response = {"artist": artist_names[artist_req], "song": song_names[song_req], "contents": bars.get_verses(), "syllables": bars.get_syllable_text()}
 
     return jsonify(response), 200
 
@@ -113,7 +113,7 @@ def get_bars():
     if song_req not in song_names.keys():
         return "Song does not exist", 500
 
-    syllables = _load_bars(artist_req, song_req).syllable_text()
+    syllables = _load_bars(artist_req, song_req).get_syllable_text()
 
     response = {"artist": artist_names[artist_req], "song": song_names[song_req], "syllables": syllables}
 

@@ -1,8 +1,0 @@
-syntax = "proto3"
-
-message Syllable {
-    string syllable = 1;
-    optional double offset = 2;
-    optional double duration = 3;
-    optional double pitch = 4;
-}

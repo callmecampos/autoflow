@@ -1,5 +1,5 @@
 # TODO: imports
-import abc
+import abc, shortuuid
 from pickle import GLOBAL
 import re, json, os
 from typing import List, Dict, Set
@@ -8,6 +8,8 @@ from nltk.tokenize import SyllableTokenizer
 # TODO: try except in case not installed -- fine for now
 from syllabipy.legalipy import LegaliPy, getOnsets
 from syllabipy.sonoripy import SonoriPy
+
+from autoflow.protos.python.bars_pb2 import SongProto, BarProto, WordProto, SyllableProto
 
 BASE_CLASS = "Syllabifier"
 BACKEND_SONORITY = "sonoripy"
@@ -112,48 +114,68 @@ class Syllable:
     pitch: [int] pitch level of spoken syllable (typically defined by song range -- could be a floating point -- yet to decide)
     sigma: [undefined] TO BE IMPLEMENTED: a yet undefined type denoting a jazzy (parameterized) probability distribution applied to the bar offset
     """
-    def __init__(self, syllable, parent_word=None, bar_offset=None, duration=1/4, pitch=0, sigma=None):
+    @staticmethod
+    def proto(syllable: str, parent_word: WordProto,
+                bar_offset: float = None, duration: float = None, pitch: float = 0) -> SyllableProto:
+        _proto = SyllableProto()
+        _proto.syllable = syllable
+        _proto.parent_word.CopyFrom(parent_word)
+        if bar_offset is not None:
+            _proto.offset = bar_offset
+        if duration is not None:
+            _proto.duration = duration
+        _proto.pitch = pitch # NOTE: pitch should likely come directly from song, though maybe we can abstract it here -- ideally predicted / extracted exactly from audio though with a neural net... or neural net for extracting lyrics audio which then measures natural pitch mean for syll or whatnot idk
+        return _proto
+
+    @classmethod
+    def create(cls, syllable: str, parent_word: WordProto,
+                bar_offset: float = None, duration: float = 1/4, pitch: float = 0):
+        return cls(Syllable.proto(syllable, parent_word, bar_offset, duration, pitch))
+
+    def to_proto(self) -> SyllableProto:
+        return self._proto
+
+    def __init__(self, syllable_proto: SyllableProto):
         # TODO: add IPA / Arpabet representation for rhyming etc. - for loose rhymes can diverge from official
-        self.syllable = syllable
-        self._bar_offset = bar_offset # 0, 0.25, 0.5, 0.75
-        self._duration = duration
-        self._pitch = pitch
-        self._parent_word = parent_word
+        self._proto = syllable_proto
 
-        self._jazztribution = sigma
+    def set_syllable(self, val: str):
+        self._proto.syllable = val
 
-    def set_bar_offset(self, val):
-        self._bar_offset = val # check valid - maybe tied to another dictionary
+    def set_offset(self, val: float):
+        self._proto.offset = val # check valid - maybe tied to another dictionary
 
-    def set_duration(self, val):
-        self._duration = val
+    def set_duration(self, val: float):
+        self._proto.duration = val
 
-    def set_pitch(self, val): # TODO: could also set as int over max and make self._pitch a float (get will take in that max and return an int)
-        self._pitch = val
-    
-    def set_jazztribution(self, jazz):
-        self._jazztribution = jazz # type this somehow : general distributions??? gaussian, poisson, general multimodal, etc.
+    def set_pitch(self, val: float): # TODO: could also set as int over max and make self._pitch a float (get will take in that max and return an int)
+        self._proto.pitch = val
 
-    def get_bar_offset(self, jazzy=False):
-        return self._bar_offset if not jazzy else self._bar_offset + self._jazztribution.sample()
+    # TODO: jazztribution.sample() or some variant -- see prev commits for comments
 
-    def get_duration(self):
-        return self._duration
+    def get_syllable(self) -> str:
+        return self._proto.syllable
 
-    def get_pitch(self):
-        return self._pitch
+    def get_offset(self) -> float:
+        return self._proto.offset
 
-    def get_parent_word(self):
-        return self._parent_word
+    def get_duration(self) -> float:
+        return self._proto.duration
+
+    def get_pitch(self) -> float:
+        return self._proto.pitch
+
+    def get_parent_word(self) -> WordProto:
+        return self._proto.parent_word
 
     # TODO: return possible IPA representations (or pass into constructor the correct one)
     # TODO: return possible rhymes -- this gets to a SyllableGroup class which groups together syllables with these same methods -- just slightly diff implementation
 
     def valid(self):
-        return isinstance(self._bar_offset, float) and 0 <= self._bar_offset < 1 # and others 
+        return isinstance(self._proto.offset, float) and 0 <= self._proto.offset < 1 # and others 
 
     def __repr__(self):
-        return f"{self.syllable} + (Offset {self._bar_offset} for {self._duration} pitched at {self._pitch} (jazzy: {self._jazztribution is not None}))"
+        return f"{self.get_syllable()} + (Offset {self.get_offset()} for {self.get_duration()} pitched at {self.get_pitch()})"
 
 class Syllabifier(metaclass=abc.ABCMeta):
     def __init__(self, override=SyllableOverride(default_multi=GLOBAL_MULTI_OVERRIDE, default_single=GLOBAL_SINGLE_OVERRIDE)):
@@ -170,17 +192,28 @@ class Syllabifier(metaclass=abc.ABCMeta):
             return []
         return self.multi_override.get(word) or ([word] if word in self.single_override else self._syllabify(word))
 
-    def syllabify(self, line, _nltk=False, _rstrip=True, _generate=False): # TODO: compare different options -- does _ntlk change behavior with/without rstrip? do some python -i testing
+    def syllabify(self, line, _nltk=False, _rstrip=True, _generate=False) -> BarProto:
+        # TODO: compare different options -- does _ntlk change behavior with/without rstrip? do some python -i testing
         if _rstrip:
             line = line.rstrip()
         line = line.replace("-", " ") # TODO: consider making this an option? might be fine to pass in dashes or nah if u change architecture - could be set in initializer with abstract class defaults ya know
         words = word_tokenize(line) if _nltk else line.split(" ") # optional split by dash and " " (or other symbols that are custom-defineable)
-        syllable_pack = []
-        for word in words: # TODO: ntlk word tokenizer acts differently than simple split by " "
-            syllable_pack.extend([Syllable(s, word) for s in self._syllabify_override(word.lower()) if s is not None])
+        
+        bar_proto = BarProto()
+        for idx, word in enumerate(words): # TODO: ntlk word tokenizer acts differently than simple split by " "
+            word_proto = WordProto()
+            word_proto.word = word
+            word_proto.id = f"{idx}_{shortuuid.uuid()}" # this is probs fine for local use - might need to redesign later
+            word_syllables = [Syllable.proto(s, word_proto) \
+                                            for s in self._syllabify_override(word.lower()) \
+                                                if s is not None] # check if passes a copy or nah, I guess we just care about the id and maybe str yeah
+            word_proto.syllables.extend(word_syllables)
+            
+            bar_proto.syllables.extend(word_syllables)
+            bar_proto.words.extend([word_proto])
             # TODO: maybe have override be optional... or can override the override dictionary with your own or an artist / song specific one? this might be part of metadata pbtxt
         
-        return syllable_pack
+        return bar_proto
 
 class SyllabifierNLTK(Syllabifier):
     def __init__(self, *args, **kwargs):
