@@ -2,7 +2,7 @@
 import abc, shortuuid
 from pickle import GLOBAL
 import re, json, os
-from typing import List, Dict, Set
+from typing import List, Dict, Optional, Set
 from nltk import word_tokenize
 from nltk.tokenize import SyllableTokenizer
 # TODO: try except in case not installed -- fine for now
@@ -33,9 +33,13 @@ Backend req: syllable has reference to word id / idx so that they can check
 - json vs. proto storage? proto storage harder to edit manually... maybe just proto to json simple function... or just keep it as json for now
 """
 
-GLOBAL_MULTI_OVERRIDE = {"piano" : ["pi", "a", "no"], "continuum" : ["con", "ti", "nu", "um"], "balance" : ["ba", "lance"], "equilibrium" : ["e", "qui", "li", "bri", "um"], "amphibian" : ["am", "phi", "bi", "an"], "diet" : ["di", "et"], "basements" : ["base", "ments"], "suicide" : ["su", "i", "cide"], "inside" : ["in", "side"], "ok" : ["o", "k"], "cocaine" : ["co", "caine"]}
+BASE_DIR = "/Users/felipecampos/Vida/projects/hiphop/autoflow/bars"
 
-GLOBAL_SINGLE_OVERRIDE = set(["love", "eyes", "ain't", "like", "you", "your", "were", "where", "none", "these", "time", "fake", "yeah", "save", "you'll", "come", "made", "leave", "pete", "piece", "wine", "cheese", "some", "are", "make", "lately", "type", "whole", "mine", "here", "sure", "same", "whore", "take", "score", "gave", "more", "fire", "rude", "wise", "peace", "since", "one"])
+"""
+"First the rhythm,... then melody,... then lyrics" -Rick Rubin
+
+"<To give lyrics a different power: has to do with rhythm --> if/when there's no drum, the lyrics tend to mean more>" -Rick Rubin
+"""
 
 # TODO: singular basement, but only when it comes up yeah -- worth thinking about simple UI / workflow for this -- gonna involve some amount of iOS dev plus simple callbacks on the server side
 
@@ -45,6 +49,8 @@ GLOBAL_SINGLE_OVERRIDE = set(["love", "eyes", "ain't", "like", "you", "your", "w
 
 """
 Other observations: Words that have silent "e" might be misclassified, also plurals and punctutation like apostrophes don't usually change pronunciation, but might cause misclassification, which could be solved by just stripping and adding back or not.
+
+What paths do we have to improve this besides manual overrides (global, song-local, and instance-level)
 """
 
 class SyllableOverride:
@@ -64,15 +70,19 @@ class SyllableOverride:
         with open(path, "r") as f:
             return json.load(f)
 
-    def __init__(self, base_path="./bars", default_multi={}, default_single=set([])):
+    @classmethod
+    def global_override(cls):
+        return cls()
+
+    def __init__(self, base_path=BASE_DIR, multi={}, single=set([])):
         self.base_path = os.path.join(base_path, "_syllable")
         os.makedirs(self.base_path, exist_ok=True)
         if (not os.path.exists(self.multi_override_path())):
             print(f"Multi override does not exist ({self.multi_override_path()}), creating.")
-            self.set_multi_override(default_multi)
+            self.set_multi_override(multi)
         if (not os.path.exists(self.single_override_path())):
             print(f"Single override does not exist ({self.single_override_path()}), creating.")
-            self.set_single_override(default_single)
+            self.set_single_override(single)
 
     def multi_override_path(self):
         return os.path.join(self.base_path, self.MULTI_OVER_JSON)
@@ -92,17 +102,24 @@ class SyllableOverride:
     def set_single_override(self, over: Set[str]):
         self.obj_to_json(list(over), self.single_override_path())
 
-    def add_override(self, word: str, syllables: List[str]):
+    def add_override(self, word: str, syllables: List[str], force: bool = False):
+        word = ALPHABET_REGEX('', word.lower()) # make this a helper fn transform of the word -- think about this more too - likely fine
         assert len(syllables), f"{word} | {syllables}"
         assert word == ''.join(syllables), f"{word} | {''.join(syllables)}" # this may not be true depending on whether word is pre-stripped
         if len(syllables) == 1:
             single_over = self.get_single_override()
+            if not force and word in single_over:
+                return False
             single_over.add(word)
             self.set_single_override(single_over)
         else:
             multi_over = self.get_multi_override()
+            if not force and word in multi_over.keys():
+                return False
             multi_over[word] = syllables
             self.set_multi_override(multi_over)
+
+        return True
 
 class Syllable:
     """Syllable wrapper class for storing    
@@ -116,7 +133,7 @@ class Syllable:
     """
     @staticmethod
     def proto(syllable: str, parent_word: WordProto,
-                bar_offset: float = None, duration: float = None, pitch: float = 0) -> SyllableProto:
+                bar_offset: float = None, duration: float = None, pitch: float = None) -> SyllableProto:
         _proto = SyllableProto()
         _proto.syllable = syllable
         _proto.parent_word.CopyFrom(parent_word)
@@ -124,7 +141,8 @@ class Syllable:
             _proto.offset = bar_offset
         if duration is not None:
             _proto.duration = duration
-        _proto.pitch = pitch # NOTE: pitch should likely come directly from song, though maybe we can abstract it here -- ideally predicted / extracted exactly from audio though with a neural net... or neural net for extracting lyrics audio which then measures natural pitch mean for syll or whatnot idk
+        if pitch is not None:
+            _proto.pitch = pitch # NOTE: pitch should likely come directly from song, though maybe we can abstract it here -- ideally predicted / extracted exactly from audio though with a neural net... or neural net for extracting lyrics audio which then measures natural pitch mean for syll or whatnot idk
         return _proto
 
     @classmethod
@@ -178,9 +196,37 @@ class Syllable:
         return f"{self.get_syllable()} + (Offset {self.get_offset()} for {self.get_duration()} pitched at {self.get_pitch()})"
 
 class Syllabifier(metaclass=abc.ABCMeta):
-    def __init__(self, override=SyllableOverride(default_multi=GLOBAL_MULTI_OVERRIDE, default_single=GLOBAL_SINGLE_OVERRIDE)):
-        self.multi_override = override.get_multi_override()
-        self.single_override = override.get_single_override()
+    def __init__(self, global_override: SyllableOverride = SyllableOverride.global_override(), local_override: Optional[SyllableOverride] = None):
+        self.multi_override = global_override.get_multi_override()
+        self.single_override = global_override.get_single_override()
+
+        print(f"Global Multi Override: {self.multi_override}")
+        print(f"Global Single Override: {self.single_override}")
+
+        if local_override is not None:
+            local_multi = local_override.get_multi_override()
+            local_single = local_override.get_single_override()
+
+            print(f"Local Multi Override: {local_multi}")
+            print(f"Local Single Override: {local_single}")
+
+            assert len(local_single.intersection(local_multi.keys())) == 0, local_single.intersection(local_multi.keys())
+
+            for multi_word, multi_syll in local_multi.items():
+                if multi_word in self.single_override:
+                    print(f"Overriding multi_word {multi_word} present in global single override")
+                    self.single_override.remove(multi_word)
+                if multi_word in self.multi_override.keys():
+                    print(f"Overriding multi_word {multi_word} in global multi override")
+                self.multi_override[multi_word] = multi_syll # override or add
+
+            for single_word in local_single:
+                if single_word in self.multi_override.keys():
+                    print(f"Overriding single_word {single_word} present in global multi override")
+                    del self.multi_override[single_word]
+                if single_word in self.single_override:
+                    print(f"Overriding single_word {single_word} in global single override")
+                self.single_override.add(single_word) # override or add
 
     @abc.abstractmethod
     def _syllabify(self, word):
@@ -203,7 +249,7 @@ class Syllabifier(metaclass=abc.ABCMeta):
         for idx, word in enumerate(words): # TODO: ntlk word tokenizer acts differently than simple split by " "
             word_proto = WordProto()
             word_proto.word = word
-            word_proto.id = f"{idx}_{shortuuid.uuid()}" # this is probs fine for local use - might need to redesign later
+            word_proto.id = f"{idx}_{shortuuid.uuid()}" # this is probs fine for local use - might need to redesign later so that the uuid maintains esp. for local overrides - maybe local override clears if anything upstream changes - ye that's the easiest always - could have a prefix hash to check against...
             word_syllables = [Syllable.proto(s, word_proto) \
                                             for s in self._syllabify_override(word.lower()) \
                                                 if s is not None] # check if passes a copy or nah, I guess we just care about the id and maybe str yeah

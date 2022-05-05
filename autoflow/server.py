@@ -15,19 +15,24 @@ COMMON HTTP STATUS CODES:
 503 - Service Unavailable
 """
 
-import flask
+import flask, io
 from flask import Flask, send_file, Response, request, jsonify
 import os, json, zipfile, sys, requests, base64, pickle, traceback
 from time import time
 from subprocess import Popen
 
+from google.protobuf.json_format import MessageToJson
+
 import numpy as np
 
 from autoflow.core import Bars
+from autoflow.parsing.syllabic import SyllableOverride, BASE_DIR
+from autoflow.protos.python.bars_pb2 import WordProto
+
+# TODO: server refactor based on functionality of loading bars etc. lol
+# TODO: add artist, add song (when artist selected -- UI's job to ensure that), update song, etc.!!! :)
 
 app = Flask(__name__)
-
-BASE_DIR = "/Users/felipecampos/Vida/projects/hiphop/autoflow/bars"
 
 """
 TODO:
@@ -45,8 +50,7 @@ def _get_songs(artist):
 
 def _load_bars(artist, song):
     song_path = os.path.join(BASE_DIR, artist, song)
-    bars = Bars.load(song_path)
-    return bars
+    return Bars(song_path)
 
 @app.route("/")
 def home():
@@ -95,9 +99,92 @@ def get_song():
 
     bars = _load_bars(artist_req, song_req)
 
-    response = {"artist": artist_names[artist_req], "song": song_names[song_req], "contents": bars.get_verses(), "syllables": bars.get_syllable_text()}
+    # TODO: figure out best parsing structure... don't wanna over parse redundantly when you don't need to <-- lol
+
+    response = {"artist": artist_names[artist_req], "song": song_names[song_req], "contents": bars.gen_lyrics(), "syllables": bars.gen_syllable_text()} # , "bars_proto" : MessageToJson(bars.to_proto())}
+
+    # TODO: test speed of sending bytes over... likely faster than full json... protos are lightweight yeah
+    # NOTE: this does just work though so we can keep devving on this while simultaneously trying to figure out the below being received
 
     return jsonify(response), 200
+
+# MARK: Protobuf Serialization and Parsing: https://developers.google.com/protocol-buffers/docs/pythontutorial#parsing-and-serialization
+@app.route("/get_song_proto", methods=['GET'])
+def get_song_proto():
+    """GET song protobuf representation object (ahahaaaa solved)
+    """
+    # TODO: helper function that takes in request and does all this to get bars yeesh (or sth idk)
+    artist_names = _get_artists()
+    
+    artist_req = request.args.get('artist')
+    if artist_req not in artist_names.keys():
+        return "Artist does not exist", 400
+    song_names = _get_songs(artist_req)
+    song_req = request.args.get('song')
+    if song_req not in song_names.keys():
+        return "Song does not exist", 500
+
+    bars = _load_bars(artist_req, song_req)
+
+    return send_file(
+        io.BytesIO(bars.to_proto().SerializeToString()),
+        as_attachment=True,
+        attachment_filename='bars.proto',
+        mimetype='attachment/x-protobuf'
+    )
+
+# TODO: update local override endpoint - requires song and artist info (yeah this should def be a proto)
+@app.route("/update_local_override", methods=['POST'])
+def update_local_override():
+    word_proto = WordProto()
+    word_proto.ParseFromString(request.get_data())
+
+    # TODO: turn this into helper function (make separate server file for this)
+
+    artist_names = _get_artists()
+    
+    artist_req = request.args.get('artist')
+    if artist_req not in artist_names.keys():
+        return "Artist does not exist", 400
+    song_names = _get_songs(artist_req)
+    song_req = request.args.get('song')
+    if song_req not in song_names.keys():
+        return "Song does not exist", 500
+
+    force = request.args.get('force') == "true"
+
+    bars = _load_bars(artist_req, song_req)
+
+    success = bars._local_override.add_override(word_proto.word, [syllable.syllable for syllable in word_proto.syllables], force)
+
+    if success:
+        return "Added to Local Override", 200
+    else:
+        return "Override already exists, check if user is sure to change", 300
+
+# TODO: update global override endpoint - keep separate for now ye
+@app.route("/update_global_override", methods=['POST'])
+def update_global_override():
+    word_proto = WordProto()
+    word_proto.ParseFromString(request.get_data())
+
+    force = request.args.get('force') == "true"
+
+    success = SyllableOverride.global_override().add_override(word_proto.word, [syllable.syllable for syllable in word_proto.syllables], force)
+
+    if success:
+        return "Added to Local Override", 200
+    else:
+        return "Override already exists, check if user is sure to change", 300
+
+@app.route("/update_song", methods=['POST'])
+def update_song():
+    return None, 501
+
+@app.route("/push_annotations", methods=['POST'])
+def push_annotations():
+    # Get proto with annotations and spit out some stats lol idk (for now we can just write idk and maybe optionally load - can reset and stuff) --> ok to be hacky for a bit here
+    return None, 501
 
 @app.route("/analyze_song", methods=['GET'])
 def get_bars():
@@ -113,7 +200,7 @@ def get_bars():
     if song_req not in song_names.keys():
         return "Song does not exist", 500
 
-    syllables = _load_bars(artist_req, song_req).get_syllable_text()
+    syllables = _load_bars(artist_req, song_req).gen_syllable_text()
 
     response = {"artist": artist_names[artist_req], "song": song_names[song_req], "syllables": syllables}
 

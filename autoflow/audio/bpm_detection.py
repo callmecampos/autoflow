@@ -20,6 +20,12 @@
 """
 Based on:
 https://github.com/scaperot/the-BPM-detector-python/blob/master/bpm_detection/bpm_detection.py
+
+TODO: Simple tests
+- Have this be an abstract interface --> audio.music().bpm() (audio interface you were making last summer! :))
+- Deep learning for learning different features about music e.g. BPM, ...
+- What else exists for extracting instruments (I'm mostly interested in voice with words prior vs. beat -- but that can naturally be transfer learned and switched out for whichever instrument you're interested in -- Auto(Musical)Flow(State))
+- Have BPM for songs and have validation set
 """
 
 import argparse

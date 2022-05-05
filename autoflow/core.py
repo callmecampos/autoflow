@@ -7,41 +7,48 @@ from autoflow.protos.python.bars_pb2 import SongProto
 # TODO: spec out and type all of these
 
 class Bars:
-    def __init__(self, verses, options={syllabic.BASE_CLASS : "NLTK"}):
-        self._proto = SongProto()
-        self._options = options # TODO: quick way to validate this (check keys at base -- and validity of it otherwise -- parse could just fail if invalid type deal)
-        self.parse(verses, init=True)
-
-    @classmethod
-    def load(cls, bars_path):
+    def __init__(self, base_path, syllable_base="NLTK"):
         """
-        Bars path: Path to song directory (e.g. "./macmiller/diablo")
+        Base bars path: Path to song directory (e.g. "./macmiller/diablo")
         Song path: Bars path + "song.bars"
 
         TODO: we should have some nice path management at some point so that we don't have to run the script from a specific spot always!!!
         """
-        with open(os.path.join(bars_path, "song.bars"), "r") as f:
-            return cls(f.readlines())
+        self._proto = SongProto()
+        with open(os.path.join(base_path, "song.bars"), "r") as f:
+            self._verses = f.readlines()
+        # TODO: song editing --> storing of musical annotation on disk --> use protos and check hash to see if substrate hasn't changed I guess yeah (this goes for hash:words -> syllables and hash:syllables to syllable annotation)
+        self._local_override = syllabic.SyllableOverride(base_path) if base_path else None
+        self._syllabic_parser = getattr(syllabic, syllabic.BASE_CLASS + syllable_base)(local_override=self._local_override)
+        self.parse()
 
     def to_proto(self) -> SongProto:
+        self.parse()
         return self._proto
 
-    def parse(self, verses: str, init=False):
-        if init:
-            self.syllabic_parser = getattr(syllabic, syllabic.BASE_CLASS + self._options[syllabic.BASE_CLASS])()
-        self._proto.bars.extend([self.syllabic_parser.syllabify(line) for line in verses])
-        # TODO: implement - loop through verses and build parsed_verses instance variable... what is a good representation for this?
+    def proto_lyrics_hash(self) -> str:
+        return "" # TODO: scope out usage / interface / API
 
-    def get_verses(self):
+    def proto_syllables_hash(self) -> str:
+        return "" # TODO: scope out usage / interface / API
+
+    def parse(self):
+        del self._proto.bars[:]
+        self._proto.bars.extend([self._syllabic_parser.syllabify(line) for line in self._verses if len(line) > 1]) # removing spurious endlines that mess with client side annotations
+        self._proto.words = self.gen_lyrics()
+        self._proto.syllables = self.gen_syllable_text()
+
+    def gen_lyrics(self):
         verses = ""
         for bar in self._proto.bars:
             for word in bar.words:
                 verses += word.word + " "
             verses = verses[:-1] # remove space
             verses += "\n"
+
         return verses
 
-    def get_syllable_text(self): # TODO: this should now be deprecated - but test like this for now to make sure functionality is the same and then refactor on swift side
+    def gen_syllable_text(self): # TODO: this should now be deprecated - but test like this for now to make sure functionality is the same and then refactor on swift side
         text_block = ""
         for bar in self._proto.bars:
             for syllable in bar.syllables:
@@ -51,7 +58,7 @@ class Bars:
 
         return text_block
 
-    def enumerate_rhymes(self, perfect=True): # TODO: types of rhymes - multi-syllabic etc.
+    def enumerate_rhymes(self, perfect=True): # TODO: types of rhymes - multi-syllabic etc. - could add list of levels to include - rhyme proto / proto field...? rhyme id for rhyme group / level or sth...
         # TODO: use a window of some sort to do a simple matching of phonetic similarity within some threshold (definitely exist apis / methods for this) -- double for loop is naturally the easiest
         pass
 

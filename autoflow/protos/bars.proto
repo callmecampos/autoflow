@@ -26,5 +26,7 @@ message BarProto {
 
 message SongProto {
     repeated BarProto bars = 1;
-    optional bytes audio = 3; // any other metadata? get link where we build this in python & swift etc. (Ray Wenderlich)
+    optional string words = 2;
+    optional string syllables = 3;
+    optional bytes audio = 4; // any other metadata? get link where we build this in python & swift etc. (Ray Wenderlich)
 }
