@@ -1,5 +1,7 @@
 # TODO: imports
 import abc, shortuuid
+from pyparsing import Word
+from numpy import single
 from pickle import GLOBAL
 import re, json, os
 from typing import List, Dict, Optional, Set
@@ -9,13 +11,15 @@ from nltk.tokenize import SyllableTokenizer
 from syllabipy.legalipy import LegaliPy, getOnsets
 from syllabipy.sonoripy import SonoriPy
 
-from autoflow.protos.python.bars_pb2 import SongProto, BarProto, WordProto, SyllableProto
+from autoflow.protos.python.bars_pb2 import BarProto, WordProto, SyllableProto
 
 BASE_CLASS = "Syllabifier"
 BACKEND_SONORITY = "sonoripy"
 BACKEND_ONSET = "legalipy"
 
 ALPHABET_REGEX = re.compile('[^a-zA-Z]').sub
+
+REST_SYMBOL = "§§" # NO-OP syllable constructor
 
 """
 TODO:
@@ -106,18 +110,28 @@ class SyllableOverride:
         word = ALPHABET_REGEX('', word.lower()) # make this a helper fn transform of the word -- think about this more too - likely fine
         assert len(syllables), f"{word} | {syllables}"
         assert word == ''.join(syllables), f"{word} | {''.join(syllables)}" # this may not be true depending on whether word is pre-stripped
+        
+        single_over = self.get_single_override()
+        if word in single_over:
+            if not force:
+                return False
+            print("Removing from single syllable override.")
+            single_over.remove(word)
+
+        multi_over = self.get_multi_override()
+        if word in multi_over.keys():
+            if not force:
+                return False
+            print("Removing from multi syllable override.")
+            del multi_over[word]
+        
         if len(syllables) == 1:
-            single_over = self.get_single_override()
-            if not force and word in single_over:
-                return False
             single_over.add(word)
-            self.set_single_override(single_over)
         else:
-            multi_over = self.get_multi_override()
-            if not force and word in multi_over.keys():
-                return False
             multi_over[word] = syllables
-            self.set_multi_override(multi_over)
+
+        self.set_single_override(single_over)
+        self.set_multi_override(multi_over)
 
         return True
 
@@ -129,7 +143,7 @@ class Syllable:
     bar_offset: [float] phase offset of syllable in bar in the domain [0-1), typically of the form of some sum of (1/2^k) expressions
     duration: [float] duration of syllable in bar of the form 1/2^k, k being a non-negative integer
     pitch: [int] pitch level of spoken syllable (typically defined by song range -- could be a floating point -- yet to decide)
-    sigma: [undefined] TO BE IMPLEMENTED: a yet undefined type denoting a jazzy (parameterized) probability distribution applied to the bar offset
+    sigma: [undefined] TO BE IMPLEMENTED: a yet undefined type denoting a jazzy (parameterized) probability distribution applied to the bar offset --> NOTE: this is related to swing notation
     """
     @staticmethod
     def proto(syllable: str, parent_word: WordProto,
@@ -200,6 +214,8 @@ class Syllabifier(metaclass=abc.ABCMeta):
         self.multi_override = global_override.get_multi_override()
         self.single_override = global_override.get_single_override()
 
+        assert len(self.single_override.intersection(self.multi_override.keys())) == 0, self.single_override.intersection(self.multi_override.keys())
+
         print(f"Global Multi Override: {self.multi_override}")
         print(f"Global Single Override: {self.single_override}")
 
@@ -246,6 +262,7 @@ class Syllabifier(metaclass=abc.ABCMeta):
         words = word_tokenize(line) if _nltk else line.split(" ") # optional split by dash and " " (or other symbols that are custom-defineable)
         
         bar_proto = BarProto()
+        bar_proto.raw_words = line
         for idx, word in enumerate(words): # TODO: ntlk word tokenizer acts differently than simple split by " "
             word_proto = WordProto()
             word_proto.word = word
@@ -254,8 +271,12 @@ class Syllabifier(metaclass=abc.ABCMeta):
                                             for s in self._syllabify_override(word.lower()) \
                                                 if s is not None] # check if passes a copy or nah, I guess we just care about the id and maybe str yeah
             word_proto.syllables.extend(word_syllables)
-            
             bar_proto.syllables.extend(word_syllables)
+
+            for (syll_idx, syllable) in enumerate(word_syllables):
+                is_last = idx == len(words) - 1 and syll_idx == len(word_syllables) - 1
+                bar_proto.raw_syllables += syllable.syllable + ("" if is_last else " ")
+
             bar_proto.words.extend([word_proto])
             # TODO: maybe have override be optional... or can override the override dictionary with your own or an artist / song specific one? this might be part of metadata pbtxt
         

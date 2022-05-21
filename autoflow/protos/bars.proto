@@ -5,10 +5,12 @@ syntax = "proto3";
 
 message SyllableProto {
     string syllable = 1;
-    optional double offset = 2;
-    optional double duration = 3;
-    optional double pitch = 4;
-    optional WordProto parent_word = 5;
+    optional int32 bar_index = 2;
+    optional double offset = 3;
+    optional double duration = 4;
+    optional double pitch = 5;
+    optional WordProto parent_word = 6;
+    optional bool marked = 7;
 }
 
 message WordProto {
@@ -17,16 +19,16 @@ message WordProto {
     optional string id = 3; // likely just an index
 }
 
-// consider BarProto vs. BarsProto or SongProto
-
 message BarProto {
     repeated WordProto words = 1;
     repeated SyllableProto syllables = 2;
+    optional string raw_words = 3;
+    optional string raw_syllables = 4;
 }
 
 message SongProto {
-    repeated BarProto bars = 1;
-    optional string words = 2;
-    optional string syllables = 3;
-    optional bytes audio = 4; // any other metadata? get link where we build this in python & swift etc. (Ray Wenderlich)
+    string artist = 1;
+    string song = 2;
+    repeated BarProto bars = 3;
+    optional bytes audio = 4;
 }
