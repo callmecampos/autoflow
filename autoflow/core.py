@@ -1,3 +1,4 @@
+from asyncore import write
 import os
 from typing import Dict, List, Optional
 
@@ -25,9 +26,17 @@ class Bars:
         self._syllabic_parser = getattr(syllabic, syllabic.BASE_CLASS + syllable_base)(local_override=self._local_override)
         self.parse()
 
+    def parse(self):
+        del self._proto.bars[:]
+        for line in self._verses:
+            if len(line) > 1:
+                parsed_bar = self._syllabic_parser.syllabify(line)
+                self._proto.bars.extend([parsed_bar])
+
         # TODO: check if proto exists
-        cached_proto = self.load_proto(base_path, artist_id, song_id)
+        cached_proto = self.load_proto(self.path)
         if cached_proto is not None:
+            writeable_bars = [bar for bar in self._proto.bars]
             # TODO: modes of overwriting
             """
             1. Production - when a line is different, we ignore, so this happens per line
@@ -49,20 +58,24 @@ class Bars:
                             print("FALSE: syllables are not the same!") # in this case - likely just roll with it and assume syllabic parsing is frozen (do look into what caused this though in global override --> case is where global override changes word that was fine in this song for whatever reason --> chill if same number of syllables I guess but definitely a weird unlikely case that you should flag)
 
                         print(f"Overriding proto bar {i} with cached bar {j}") # this will set syllables back once you start unless you hard reset song with button
-                        self._proto.bars[i] = cached_proto.bars[j] # TODO: some sort of live tracking of this as you live type - or rather intelligently clear at bar level whenever typing, and on DELETE events handle that accordingly (just delete from the existing proto and don't worry about it -- maybe timings are relative to last beat! and that's the unit... idk this will be obvious as we build this summer)
+                        writeable_bars[i] = cached_proto.bars[j] # TODO: some sort of live tracking of this as you live type - or rather intelligently clear at bar level whenever typing, and on DELETE events handle that accordingly (just delete from the existing proto and don't worry about it -- maybe timings are relative to last beat! and that's the unit... idk this will be obvious as we build this summer)
                         # NOTE: Goal by end of summer - be producing your own songs with this tool from the forms you get from other songs --> 10 hours a week of work (1hr a day == 7 hrs a week + 3 total on weekends) -- same for standup 5 hrs a week -- 1 hr per day~
+                        for syll in cached_proto.bars[j].syllables:
+                            if syll.marked:
+                                print(f"syll MARKED {syll} MARKED")
                         break
+
+            del self._proto.bars[:]
+            self._proto.bars.extend(writeable_bars)
+            print("checking")
+            for bar in self._proto.bars:
+                for syll in bar.syllables:
+                    if syll.marked:
+                        print(f"syll MARKED {syll} MARKED")
 
             # TODO: if both are same, set beat annotations from proto -- otherwise fail (can also force load if we are confident word --> syllables are frozen! --> only if words have changed should we fully reload)
 
         # TODO: protos --> rhyming (not now but start to scope out what is best for representing rhyme schemes in edit-proof fashion)
-
-    def parse(self):
-        del self._proto.bars[:]
-        for i, line in enumerate(self._verses):
-            if len(line) > 1:
-                parsed_bar = self._syllabic_parser.syllabify(line)
-                self._proto.bars.extend([parsed_bar])
 
     def to_proto(self) -> SongProto:
         self.parse()
@@ -75,8 +88,8 @@ class Bars:
             proto_file.write(proto.SerializeToString())
 
     @staticmethod
-    def load_proto(base_path, artist_id, song_id) -> Optional[SongProto]:
-        proto_path = os.path.join(base_path, artist_id, song_id, "song.data")
+    def load_proto(song_path) -> Optional[SongProto]:
+        proto_path = os.path.join(song_path, "song.data")
         if not os.path.exists(proto_path):
             return None
 
@@ -102,38 +115,6 @@ class Bars:
     def enumerate_rhymes(self, perfect=True): # TODO: types of rhymes - multi-syllabic etc. - could add list of levels to include - rhyme proto / proto field...? rhyme id for rhyme group / level or sth...
         # TODO: use a window of some sort to do a simple matching of phonetic similarity within some threshold (definitely exist apis / methods for this) -- double for loop is naturally the easiest
         pass
-
-class Bar:
-    """Bar class for a single bar (line) of a song in 4/4 meter
-
-    Used by user interface calls (or another interfacing system) to modify syllabic components of a bar in rhythm, duration, pitch (or others aka IPA representation)
-
-    NOTES:
-    - TODO: Can be converted to a proto / serialized objects of sorts in a versioned system representation (which can also be interfaced with through loading and writing)
-    """
-    def __init__(self, syllabic_line : List[syllabic.Syllable]):
-        self.syllabic_line = syllabic_line
-
-    def set_syllable(self, index, offset, duration=1/4, pitch=0):
-        syll = self.syllabic_line[index]
-        syll.set_offset(offset)
-        syll.set_duration(duration)
-        syll.set_pitch(pitch)
-
-    """ MARK: Human Correction (let's make sure this is mostly frozen before musical annotation - we'll have to be careful about how we handle that) """
-
-    def split_syllable(self, syll, letter):
-        # This should call syll.split(letter) but do the relevant replacement in the list with the returned values
-        pass # TODO: splits syllable at given letter (we should think of a raw vs. edited proto representation) -- e.g. for diet --> di et
-
-    def join_syllables(self, syll1, syll2): # maybe take in arbitrary number of syllables in args and join
-        pass
-
-    def split_beat(self, start, end, ratio):
-        # FIXME: this will go closer to a UI layer
-        pass # NOTE: this feels like more of a UI thing - the idea being that with the lyrical chart UI it'll start with 4 split beats in a bar (aligned to increments of 1/4) and that the user can split from there with some UI action -- this does need to be stored, but maybe not at this level...
-
-    # what other actions?
 
 """
 Questions:

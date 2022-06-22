@@ -210,6 +210,11 @@ class Syllable:
         return f"{self.get_syllable()} + (Offset {self.get_offset()} for {self.get_duration()} pitched at {self.get_pitch()})"
 
 class Syllabifier(metaclass=abc.ABCMeta):
+    """
+    Abstract base class for text-based syllable segmentation modules.
+
+    Soon we'll also start experimenting with audio-based syllable segmentation modules, which may take raw words or these as a secondary input (prior).
+    """
     def __init__(self, global_override: SyllableOverride = SyllableOverride.global_override(), local_override: Optional[SyllableOverride] = None):
         self.multi_override = global_override.get_multi_override()
         self.single_override = global_override.get_single_override()

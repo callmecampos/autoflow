@@ -141,7 +141,7 @@ def update_global_override():
     else:
         return "Override already exists, check if user is sure to change", 300
 
-@app.route("/update_song", methods=['POST'])
+@app.route("/update_song_proto", methods=['POST'])
 def update_song():
     song_proto = SongProto()
     song_proto.ParseFromString(request.get_data()) # TODO: song proto should include artist and song (id and name...)

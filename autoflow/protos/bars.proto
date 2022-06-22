@@ -21,14 +21,26 @@ message WordProto {
 
 message BarProto {
     repeated WordProto words = 1;
-    repeated SyllableProto syllables = 2;
+    repeated SyllableProto syllables = 2; // includes rests
     optional string raw_words = 3;
-    optional string raw_syllables = 4;
+    optional string raw_syllables = 4; // does not include rests
 }
 
 message SongProto {
+    optional SongConfigProto config = 1;
+    repeated BarProto bars = 2;
+    // optional bytes audio = 3; // FIXME: maybe too large to include here -- send separately
+}
+
+message SongConfigProto {
     string artist = 1;
     string song = 2;
-    repeated BarProto bars = 3;
-    optional bytes audio = 4;
+    optional string download_url = 3; // NOTE: not all songs have this - this is only for analysis - and once downloaded ur good
+    // TODO: make song config pbtxt with youtube link (detect which link and for now just handle youtube)
+    // TODO: download and place in _audio directory
+    // TODO: new song generation function
+    //       create all empty subdirectories and files,
+    //       have this be a bar helper class function
+    //       instead of loading it creates then loads from what it's created, though it's empty lol
+    //       every endline it re-runs syllabic parsing on that line that you've edited??? how do beat annotations affect this...
 }
